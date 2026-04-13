@@ -12,8 +12,9 @@ import 'timeline_view.dart';
 import 'search_view.dart';
 import 'stats_view.dart';
 import 'google_calendar_view.dart';
+import 'shift_import_screen.dart';
 
-enum _NavItem { today, timeline, calendar, search, stats, google }
+enum _NavItem { today, timeline, calendar, search, stats, google, shift }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -201,6 +202,10 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.calendar_today_outlined),
               selectedIcon: Icon(Icons.calendar_today),
               label: 'Google'),
+          NavigationDestination(
+              icon: Icon(Icons.document_scanner_outlined),
+              selectedIcon: Icon(Icons.document_scanner),
+              label: 'シフト'),
         ],
       ),
       floatingActionButton: (_nav == _NavItem.today ||
@@ -276,6 +281,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onAddEntry: _upsert,
           onRestoreEntries: _restore,
         ),
+      _NavItem.shift => ShiftImportScreen(onAddEntry: _upsert),
     };
   }
 
@@ -322,6 +328,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icon(Icons.calendar_today_outlined),
                   selectedIcon: Icon(Icons.calendar_today),
                   label: Text('Google')),
+              NavigationRailDestination(
+                  icon: Icon(Icons.document_scanner_outlined),
+                  selectedIcon: Icon(Icons.document_scanner),
+                  label: Text('シフト')),
             ],
             trailing: Expanded(
               child: Align(
@@ -411,6 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onAddEntry: _upsert,
                   onRestoreEntries: _restore,
                 ),
+              _NavItem.shift => ShiftImportScreen(onAddEntry: _upsert),
             },
           ),
         ],
