@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -54,7 +55,13 @@ class _ShiftImportScreenState extends State<ShiftImportScreen> {
     setState(() { _loading = true; _error = null; _shifts = []; _selected.clear(); });
     try {
       final picker = ImagePicker();
-      final file = await picker.pickImage(source: source, imageQuality: 85);
+      XFile? file;
+      try {
+        file = await picker.pickImage(source: source, imageQuality: 85);
+      } catch (_) {
+        // camera 非対応の場合は gallery にフォールバック
+        file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+      }
       if (file == null) {
         setState(() => _loading = false);
         return;
@@ -141,35 +148,49 @@ class _ShiftImportScreenState extends State<ShiftImportScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _pickAndAnalyze(ImageSource.gallery),
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('ギャラリーから選択'),
-                    ),
+              if (kIsWeb)
+                // ウェブ: 1ボタン（スマホでは自動でカメラ/ライブラリ選択が出る）
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _loading
+                        ? null
+                        : () => _pickAndAnalyze(ImageSource.gallery),
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: const Text('画像を選択（カメラ or ライブラリ）'),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.tonal(
-                      onPressed: _loading
-                          ? null
-                          : () => _pickAndAnalyze(ImageSource.camera),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.camera_alt_outlined, size: 18),
-                          SizedBox(width: 6),
-                          Text('カメラで撮影'),
-                        ],
+                )
+              else
+                // デスクトップ: ギャラリーとカメラを分けて表示
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () => _pickAndAnalyze(ImageSource.gallery),
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: const Text('ファイルを選択'),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.tonal(
+                        onPressed: _loading
+                            ? null
+                            : () => _pickAndAnalyze(ImageSource.camera),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.camera_alt_outlined, size: 18),
+                            SizedBox(width: 6),
+                            Text('カメラで撮影'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => _svc.saveApiKey('').then((_) => setState(() {})),
