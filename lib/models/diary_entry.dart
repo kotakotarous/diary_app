@@ -21,6 +21,7 @@ class DiaryEntry {
   final List<String> tags;
   final List<DiaryLink> links;
   final int? mood; // 1〜5, null=未設定
+  final DateTime updatedAt; // 同期用：最終更新日時
 
   DiaryEntry({
     required this.id,
@@ -30,22 +31,29 @@ class DiaryEntry {
     this.tags = const [],
     this.links = const [],
     this.mood,
-  });
+    DateTime? updatedAt,
+  }) : updatedAt = updatedAt ?? date;
 
   int get wordCount => content.trim().isEmpty ? 0 : content.trim().split(RegExp(r'\s+')).length;
 
-  factory DiaryEntry.fromJson(Map<String, dynamic> json) => DiaryEntry(
-        id: json['id'] as String,
-        date: DateTime.parse(json['date'] as String),
-        title: json['title'] as String? ?? '',
-        content: json['content'] as String,
-        tags: (json['tags'] as List<dynamic>?)?.cast<String>() ?? [],
-        links: (json['links'] as List<dynamic>?)
-                ?.map((e) => DiaryLink.fromJson(e as Map<String, dynamic>))
-                .toList() ??
-            [],
-        mood: json['mood'] as int?,
-      );
+  factory DiaryEntry.fromJson(Map<String, dynamic> json) {
+    final date = DateTime.parse(json['date'] as String);
+    return DiaryEntry(
+      id: json['id'] as String,
+      date: date,
+      title: json['title'] as String? ?? '',
+      content: json['content'] as String,
+      tags: (json['tags'] as List<dynamic>?)?.cast<String>() ?? [],
+      links: (json['links'] as List<dynamic>?)
+              ?.map((e) => DiaryLink.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+      mood: json['mood'] as int?,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
+          : date,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -55,6 +63,7 @@ class DiaryEntry {
         'tags': tags,
         'links': links.map((l) => l.toJson()).toList(),
         if (mood != null) 'mood': mood,
+        'updatedAt': updatedAt.toIso8601String(),
       };
 
   DiaryEntry copyWith({
@@ -64,6 +73,7 @@ class DiaryEntry {
     List<String>? tags,
     List<DiaryLink>? links,
     Object? mood = _sentinel,
+    DateTime? updatedAt,
   }) =>
       DiaryEntry(
         id: id,
@@ -73,6 +83,7 @@ class DiaryEntry {
         tags: tags ?? this.tags,
         links: links ?? this.links,
         mood: mood == _sentinel ? this.mood : mood as int?,
+        updatedAt: updatedAt ?? this.updatedAt,
       );
 }
 

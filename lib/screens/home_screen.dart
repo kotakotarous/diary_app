@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final _service = DiaryService();
   List<DiaryEntry> _entries = [];
   bool _loading = true;
+  bool _syncing = false;
   _NavItem _nav = _NavItem.today;
   DiaryEntry? _detailEntry;
   DateTime _focusedDay = DateTime.now();
@@ -45,6 +46,19 @@ class _HomeScreenState extends State<HomeScreen> {
       final today = _entriesForDay(DateTime.now());
       if (today.isNotEmpty) _detailEntry = today.first;
     });
+    // バックグラウンドで Drive と同期
+    setState(() => _syncing = true);
+    final synced = await _service.syncWithDrive(entries);
+    if (synced != null && mounted) {
+      setState(() {
+        _entries = synced;
+        _syncing = false;
+        final today = _entriesForDay(DateTime.now());
+        if (today.isNotEmpty) _detailEntry = today.first;
+      });
+    } else if (mounted) {
+      setState(() => _syncing = false);
+    }
   }
 
   List<DiaryEntry> _entriesForDay(DateTime day) => _entries
@@ -60,6 +74,22 @@ class _HomeScreenState extends State<HomeScreen> {
           builder: (_) => EntryEditScreen(entry: entry, initialDate: date)),
     );
     if (result != null) await _upsert(result);
+  }
+
+  void _openDetail(DiaryEntry entry) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (ctx) => _EntryDetailScreen(
+        entry: entry,
+        onEdit: () async {
+          Navigator.of(ctx).pop();
+          await _openEdit(entry: entry);
+        },
+        onDelete: () async {
+          Navigator.of(ctx).pop();
+          await _delete(entry);
+        },
+      ),
+    ));
   }
 
   Future<void> _upsert(DiaryEntry entry) async {
@@ -120,12 +150,122 @@ class _HomeScreenState extends State<HomeScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final isNarrow = MediaQuery.of(context).size.width < 700;
+    return isNarrow ? _buildMobile(context) : _buildDesktop(context);
+  }
+
+  // ===== モバイルレイアウト =====
+  Widget _buildMobile(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final idx = _NavItem.values.indexOf(_nav);
+
+    return Scaffold(
+      body: _mobileContent(),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: idx,
+        onDestinationSelected: (i) {
+          setState(() {
+            _nav = _NavItem.values[i];
+            if (_nav != _NavItem.calendar) _detailEntry = null;
+          });
+        },
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        destinations: const [
+          NavigationDestination(
+              icon: Icon(Icons.wb_sunny_outlined),
+              selectedIcon: Icon(Icons.wb_sunny),
+              label: '今日'),
+          NavigationDestination(
+              icon: Icon(Icons.view_timeline_outlined),
+              selectedIcon: Icon(Icons.view_timeline),
+              label: '一覧'),
+          NavigationDestination(
+              icon: Icon(Icons.calendar_month_outlined),
+              selectedIcon: Icon(Icons.calendar_month),
+              label: 'カレンダー'),
+          NavigationDestination(
+              icon: Icon(Icons.search),
+              selectedIcon: Icon(Icons.search),
+              label: '検索'),
+          NavigationDestination(
+              icon: Icon(Icons.bar_chart_outlined),
+              selectedIcon: Icon(Icons.bar_chart),
+              label: '統計'),
+          NavigationDestination(
+              icon: Icon(Icons.calendar_today_outlined),
+              selectedIcon: Icon(Icons.calendar_today),
+              label: 'Google'),
+        ],
+      ),
+      floatingActionButton: (_nav == _NavItem.today ||
+              _nav == _NavItem.timeline ||
+              _nav == _NavItem.calendar)
+          ? FloatingActionButton(
+              heroTag: 'add_mobile',
+              onPressed: () => _openEdit(
+                  date: _nav == _NavItem.calendar ? _selectedDay : null),
+              tooltip: '新しい記録',
+              child: const Icon(Icons.add),
+            )
+          : null,
+      persistentFooterAlignment: AlignmentDirectional.centerStart,
+      persistentFooterButtons: _syncing
+          ? [
+              const SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 8),
+              const Text('同期中...', style: TextStyle(fontSize: 12)),
+            ]
+          : null,
+    );
+  }
+
+  Widget _mobileContent() {
+    return switch (_nav) {
+      _NavItem.today => TodayView(
+          entries: _entries,
+          onSelect: _openDetail,
+          onEdit: (e) => _openEdit(entry: e),
+          onAdd: () => _openEdit(),
+        ),
+      _NavItem.timeline => TimelineView(
+          entries: _entries,
+          selected: _detailEntry,
+          onSelect: _openDetail,
+        ),
+      _NavItem.calendar => _MobileCalendarPane(
+          entries: _entries,
+          focusedDay: _focusedDay,
+          selectedDay: _selectedDay,
+          onDaySelected: (s, f) =>
+              setState(() { _selectedDay = s; _focusedDay = f; }),
+          onPageChanged: (f) => setState(() => _focusedDay = f),
+          onSelect: _openDetail,
+          onAdd: (d) => _openEdit(date: d),
+        ),
+      _NavItem.search => SearchView(
+          entries: _entries,
+          onSelect: _openDetail,
+        ),
+      _NavItem.stats => StatsView(entries: _entries),
+      _NavItem.google => GoogleCalendarView(
+          diaryEntries: _entries,
+          onAddEntry: _upsert,
+          onRestoreEntries: _restore,
+        ),
+    };
+  }
+
+  // ===== デスクトップレイアウト（既存） =====
+  Widget _buildDesktop(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
       body: Row(
         children: [
-          // ===== ナビゲーションレール =====
           NavigationRail(
             backgroundColor: cs.surfaceContainerHighest,
             selectedIndex: _NavItem.values.indexOf(_nav),
@@ -168,19 +308,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 alignment: Alignment.bottomCenter,
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 16),
-                  child: FloatingActionButton.small(
-                    heroTag: 'add',
-                    onPressed: () => _openEdit(),
-                    tooltip: '新しい記録',
-                    child: const Icon(Icons.add),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_syncing) ...[
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text('同期中',
+                            style: TextStyle(fontSize: 10)),
+                        const SizedBox(height: 8),
+                      ],
+                      FloatingActionButton.small(
+                        heroTag: 'add_desktop',
+                        onPressed: () => _openEdit(),
+                        tooltip: '新しい記録',
+                        child: const Icon(Icons.add),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
           ),
           const VerticalDivider(width: 1),
-
-          // ===== メインコンテンツ =====
           Expanded(
             child: switch (_nav) {
               _NavItem.today => TodayView(
@@ -245,7 +399,127 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// 2ペインレイアウト
+// ===== モバイル用カレンダーペイン（縦積み） =====
+class _MobileCalendarPane extends StatelessWidget {
+  final List<DiaryEntry> entries;
+  final DateTime focusedDay;
+  final DateTime selectedDay;
+  final void Function(DateTime, DateTime) onDaySelected;
+  final void Function(DateTime) onPageChanged;
+  final void Function(DiaryEntry) onSelect;
+  final void Function(DateTime) onAdd;
+
+  const _MobileCalendarPane({
+    required this.entries,
+    required this.focusedDay,
+    required this.selectedDay,
+    required this.onDaySelected,
+    required this.onPageChanged,
+    required this.onSelect,
+    required this.onAdd,
+  });
+
+  List<DiaryEntry> _forDay(DateTime day) => entries
+      .where((e) =>
+          e.date.year == day.year &&
+          e.date.month == day.month &&
+          e.date.day == day.day)
+      .toList();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final dayEntries = _forDay(selectedDay);
+    const w = ['月', '火', '水', '木', '金', '土', '日'];
+    final label =
+        '${selectedDay.month}月${selectedDay.day}日（${w[selectedDay.weekday - 1]}）';
+
+    return Column(
+      children: [
+        TableCalendar<DiaryEntry>(
+          locale: 'ja_JP',
+          firstDay: DateTime(2000),
+          lastDay: DateTime(2100),
+          focusedDay: focusedDay,
+          selectedDayPredicate: (d) => isSameDay(d, selectedDay),
+          eventLoader: _forDay,
+          calendarFormat: CalendarFormat.month,
+          availableCalendarFormats: const {CalendarFormat.month: '月'},
+          headerStyle: const HeaderStyle(
+            formatButtonVisible: false,
+            titleCentered: true,
+            titleTextStyle:
+                TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+            headerPadding: EdgeInsets.symmetric(vertical: 4),
+          ),
+          calendarStyle: CalendarStyle(
+            todayDecoration: BoxDecoration(
+              color: cs.primary.withOpacity(0.3),
+              shape: BoxShape.circle,
+            ),
+            selectedDecoration: BoxDecoration(
+              color: cs.primary,
+              shape: BoxShape.circle,
+            ),
+            markerDecoration: BoxDecoration(
+              color: cs.secondary,
+              shape: BoxShape.circle,
+            ),
+            markersMaxCount: 1,
+            markerSize: 5,
+            cellMargin: const EdgeInsets.all(2),
+            defaultTextStyle: const TextStyle(fontSize: 13),
+            weekendTextStyle: TextStyle(fontSize: 13, color: cs.error),
+          ),
+          daysOfWeekStyle: DaysOfWeekStyle(
+            weekendStyle: TextStyle(fontSize: 11, color: cs.error),
+            weekdayStyle: const TextStyle(fontSize: 11),
+          ),
+          onDaySelected: onDaySelected,
+          onPageChanged: onPageChanged,
+        ),
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+          child: Row(
+            children: [
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.add, size: 20),
+                tooltip: 'この日に追加',
+                onPressed: () => onAdd(selectedDay),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: dayEntries.isEmpty
+              ? Center(
+                  child: Text('記録なし',
+                      style: TextStyle(color: cs.onSurfaceVariant)))
+              : ListView(
+                  children: dayEntries
+                      .map((e) => EntryCard(
+                            entry: e,
+                            compact: false,
+                            isSelected: false,
+                            onTap: () => onSelect(e),
+                          ))
+                      .toList(),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ===== デスクトップ用ウィジェット（既存） =====
+
 class _TwoPane extends StatelessWidget {
   final Widget left;
   final Widget right;
@@ -264,7 +538,6 @@ class _TwoPane extends StatelessWidget {
   }
 }
 
-// カレンダーペイン
 class _CalendarPane extends StatelessWidget {
   final List<DiaryEntry> entries;
   final DiaryEntry? selected;
@@ -304,7 +577,6 @@ class _CalendarPane extends StatelessWidget {
 
     return Row(
       children: [
-        // 左：カレンダー + 日付リスト
         Container(
           width: 300,
           color: cs.surfaceContainerHighest,
@@ -401,7 +673,6 @@ class _CalendarPane extends StatelessWidget {
           ),
         ),
         const VerticalDivider(width: 1),
-        // 右：詳細
         Expanded(
           child: selected == null
               ? _EmptyDetail(
@@ -425,7 +696,6 @@ class _CalendarPane extends StatelessWidget {
   }
 }
 
-// 空の詳細パネル
 class _EmptyDetail extends StatelessWidget {
   final String message;
   const _EmptyDetail({this.message = '記録を選択してください'});
@@ -448,14 +718,58 @@ class _EmptyDetail extends StatelessWidget {
   }
 }
 
-// エントリー詳細パネル
-class _EntryDetail extends StatelessWidget {
+// モバイル用：詳細を全画面で表示するスクリーン
+class _EntryDetailScreen extends StatelessWidget {
   final DiaryEntry entry;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
-  const _EntryDetail(
-      {required this.entry, required this.onEdit, required this.onDelete});
+  const _EntryDetailScreen({
+    required this.entry,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final title = entry.title.isNotEmpty ? entry.title : '日記';
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title, overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(
+              onPressed: onEdit,
+              icon: const Icon(Icons.edit_outlined),
+              tooltip: '編集'),
+          IconButton(
+              onPressed: onDelete,
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '削除',
+              color: Theme.of(context).colorScheme.error),
+        ],
+      ),
+      body: _EntryDetail(
+        entry: entry,
+        onEdit: onEdit,
+        onDelete: onDelete,
+        hideActions: true,
+      ),
+    );
+  }
+}
+
+class _EntryDetail extends StatelessWidget {
+  final DiaryEntry entry;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final bool hideActions;
+
+  const _EntryDetail({
+    required this.entry,
+    required this.onEdit,
+    required this.onDelete,
+    this.hideActions = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -466,11 +780,10 @@ class _EntryDetail extends StatelessWidget {
         '${entry.date.year}年${entry.date.month}月${entry.date.day}日（$w）';
 
     return Padding(
-      padding: const EdgeInsets.all(32),
+      padding: const EdgeInsets.all(24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ヘッダー行
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -495,18 +808,19 @@ class _EntryDetail extends StatelessWidget {
                 MoodBadge(mood: entry.mood!, showLabel: true),
                 const SizedBox(width: 8),
               ],
-              IconButton(
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  tooltip: '編集'),
-              IconButton(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                  tooltip: '削除',
-                  color: cs.error),
+              if (!hideActions) ...[
+                IconButton(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: '編集'),
+                IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: '削除',
+                    color: cs.error),
+              ],
             ],
           ),
-          // タグ
           if (entry.tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -522,7 +836,6 @@ class _EntryDetail extends StatelessWidget {
               ),
             ),
           const Divider(height: 24),
-          // 本文
           Expanded(
             child: SingleChildScrollView(
               child: Column(
@@ -532,7 +845,6 @@ class _EntryDetail extends StatelessWidget {
                     entry.content,
                     style: const TextStyle(fontSize: 16, height: 1.8),
                   ),
-                  // リンク
                   if (entry.links.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     const Divider(),
@@ -578,10 +890,10 @@ class _EntryDetail extends StatelessWidget {
                           ),
                         )),
                   ],
-                  // 文字数
                   const SizedBox(height: 16),
                   Text('${entry.wordCount}文字',
-                      style: TextStyle(fontSize: 11, color: cs.outlineVariant)),
+                      style: TextStyle(
+                          fontSize: 11, color: cs.outlineVariant)),
                 ],
               ),
             ),

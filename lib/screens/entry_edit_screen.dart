@@ -114,6 +114,7 @@ class _EntryEditScreenState extends State<EntryEditScreen> {
       tags: _tags,
       links: _links,
       mood: _mood,
+      updatedAt: DateTime.now().toUtc(),
     ));
   }
 

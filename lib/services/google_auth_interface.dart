@@ -7,6 +7,9 @@ abstract class GoogleAuthInterface {
   String? get userEmail;
   String? get userName;
 
+  /// ウェブ版: コールバック処理中に発生したエラー（UI表示用）
+  String? get callbackError => null;
+
   Future<bool> loadSaved();
 
   /// デスクトップ: clientId + clientSecret が必要

@@ -34,6 +34,7 @@ class GoogleCalendarService {
   bool get isLoggedIn  => _auth.isLoggedIn;
   String? get userEmail => _auth.userEmail;
   String? get userName  => _auth.userName;
+  String? get callbackError => _auth.callbackError;
 
   Future<bool> loadSaved() => _auth.loadSaved();
   Future<void> saveClientId(String id, [String? secret]) =>

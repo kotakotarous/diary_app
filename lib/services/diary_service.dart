@@ -2,9 +2,64 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/diary_entry.dart';
 import 'diary_io_helper.dart' if (dart.library.html) 'diary_web_helper.dart';
+import 'google_drive_service.dart';
 
 class DiaryService {
   static const _prefKey = 'diary_entries';
+  final _drive = GoogleDriveService.instance;
+
+  /// Drive と同期してマージした結果を返す。
+  /// ログイン済みでない場合は null を返す。
+  Future<List<DiaryEntry>?> syncWithDrive(List<DiaryEntry> local) async {
+    if (!_drive.isLoggedIn) return null;
+    try {
+      final raw = await _drive.download();
+      if (raw == null) {
+        // Drive にデータなし → ローカルをアップロードするだけ
+        await _drive.upload(
+            jsonEncode(local.map((e) => e.toJson()).toList()));
+        return null;
+      }
+      final driveEntries = (jsonDecode(raw) as List<dynamic>)
+          .map((e) => DiaryEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+
+      // マージ: id をキーに新しい方を採用
+      final merged = <String, DiaryEntry>{};
+      for (final e in local) {
+        merged[e.id] = e;
+      }
+      for (final e in driveEntries) {
+        final existing = merged[e.id];
+        if (existing == null || e.updatedAt.isAfter(existing.updatedAt)) {
+          merged[e.id] = e;
+        }
+      }
+
+      final result = merged.values.toList()
+        ..sort((a, b) => b.date.compareTo(a.date));
+
+      // マージ結果をローカルに保存
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+          _prefKey, jsonEncode(result.map((e) => e.toJson()).toList()));
+
+      // マージ結果を Drive にアップロード
+      await _drive.upload(jsonEncode(result.map((e) => e.toJson()).toList()));
+
+      return result;
+    } catch (_) {
+      return null; // 失敗してもローカルデータで続行
+    }
+  }
+
+  /// 保存後にバックグラウンドで Drive へアップロード
+  void _uploadToDriveInBackground(List<DiaryEntry> entries) {
+    if (!_drive.isLoggedIn) return;
+    _drive
+        .upload(jsonEncode(entries.map((e) => e.toJson()).toList()))
+        .ignore();
+  }
 
   Future<List<DiaryEntry>> loadEntries() async {
     try {
@@ -27,6 +82,7 @@ class DiaryService {
     await prefs.setString(
         _prefKey, jsonEncode(entries.map((e) => e.toJson()).toList()));
     await _doMarkdownExport(entries);
+    _uploadToDriveInBackground(entries);
   }
 
   Future<void> _doMarkdownExport(List<DiaryEntry> entries) async {

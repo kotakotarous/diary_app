@@ -56,6 +56,7 @@ class _GoogleCalendarViewState extends State<GoogleCalendarView> {
     setState(() {
       _hasClientId = _svc.hasClientId;
       _isLoggedIn  = _svc.isLoggedIn;
+      if (_svc.callbackError != null) _error = _svc.callbackError;
     });
     if (_isLoggedIn) {
       await _fetch();
@@ -84,8 +85,7 @@ class _GoogleCalendarViewState extends State<GoogleCalendarView> {
     final id     = _idCtrl.text.trim();
     final secret = _secretCtrl.text.trim();
     if (id.isEmpty) return;
-    // ウェブは secret 不要
-    await _svc.saveClientId(id, kIsWeb ? null : secret.isEmpty ? null : secret);
+    await _svc.saveClientId(id, secret.isEmpty ? null : secret);
     setState(() => _hasClientId = true);
   }
 
@@ -509,7 +509,7 @@ class _SetupScreen extends StatelessWidget {
               if (isWeb) ...[
                 Text(
                   'Google Cloud ConsoleでOAuth2クライアントIDを作成してください。\n'
-                  'ウェブ版ではClient IDのみ必要です。',
+                  'ウェブ版ではClient IDとClient Secretが必要です。',
                   style:
                       TextStyle(fontSize: 13, color: cs.onSurfaceVariant),
                 ),
@@ -517,10 +517,12 @@ class _SetupScreen extends StatelessWidget {
                 Text(
                   '手順:\n'
                   '① console.cloud.google.com → 認証情報 → OAuthクライアントID\n'
-                  '② アプリケーションの種類：「ウェブアプリケーション」\n'
-                  '③ 承認済みJavaScriptオリジンにこのサイトのURLを追加\n'
-                  '   （例: https://あなたのドメイン.github.io）\n'
-                  '④ Calendar API・Drive API を有効化',
+                  '② 種類：「ウェブアプリケーション」\n'
+                  '③ 承認済みJavaScriptオリジン → 追加:\n'
+                  '   https://kotakotarous.github.io\n'
+                  '④ 承認済みリダイレクトURI → 追加:\n'
+                  '   https://kotakotarous.github.io/diary_app/\n'
+                  '⑤ Calendar API・Drive API を有効化',
                   style: TextStyle(fontSize: 11, color: cs.outline),
                 ),
               ] else ...[
@@ -547,17 +549,15 @@ class _SetupScreen extends StatelessWidget {
                   border: OutlineInputBorder(),
                 ),
               ),
-              if (!isWeb) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: secretCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Client Secret',
-                    border: OutlineInputBorder(),
-                  ),
-                  obscureText: true,
+              const SizedBox(height: 12),
+              TextField(
+                controller: secretCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Client Secret',
+                  border: OutlineInputBorder(),
                 ),
-              ],
+                obscureText: true,
+              ),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: onSave,

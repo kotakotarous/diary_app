@@ -10,6 +10,8 @@ class GoogleDriveService {
   static const _backupFileName = 'diary_backup.json';
   final GoogleAuthInterface _auth = GoogleAuthImpl.instance;
 
+  bool get isLoggedIn => _auth.isLoggedIn;
+
   Future<String?> _findFileId(gdrive.DriveApi api) async {
     final list = await api.files.list(
       spaces: 'appDataFolder',
