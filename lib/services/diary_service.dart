@@ -48,6 +48,8 @@ class DiaryService {
   /// Drive と同期してマージした結果を返す。
   /// ログイン済みでない場合は null を返す。
   Future<List<DiaryEntry>?> syncWithDrive(List<DiaryEntry> local) async {
+    // 認証情報を読み込む（起動時はまだ未ロードのため）
+    await _drive.loadSaved();
     if (!_drive.isLoggedIn) return null;
     try {
       final raw = await _drive.download();

@@ -12,6 +12,8 @@ class GoogleDriveService {
 
   bool get isLoggedIn => _auth.isLoggedIn;
 
+  Future<void> loadSaved() => _auth.loadSaved();
+
   Future<String?> _findFileId(gdrive.DriveApi api) async {
     final list = await api.files.list(
       spaces: 'appDataFolder',
