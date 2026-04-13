@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<DiaryEntry> _entries = [];
   bool _loading = true;
   bool _syncing = false;
+  String? _syncError;
   _NavItem _nav = _NavItem.today;
   DiaryEntry? _detailEntry;
   DateTime _focusedDay = DateTime.now();
@@ -49,15 +50,20 @@ class _HomeScreenState extends State<HomeScreen> {
     // バックグラウンドで Drive と同期
     setState(() => _syncing = true);
     final synced = await _service.syncWithDrive(entries);
-    if (synced != null && mounted) {
+    if (!mounted) return;
+    if (synced != null) {
       setState(() {
         _entries = synced;
         _syncing = false;
+        _syncError = null;
         final today = _entriesForDay(DateTime.now());
         if (today.isNotEmpty) _detailEntry = today.first;
       });
-    } else if (mounted) {
-      setState(() => _syncing = false);
+    } else {
+      setState(() {
+        _syncing = false;
+        _syncError = _service.lastSyncError;
+      });
     }
   }
 
@@ -212,14 +218,28 @@ class _HomeScreenState extends State<HomeScreen> {
       persistentFooterButtons: _syncing
           ? [
               const SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+                  height: 20, width: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2)),
               const SizedBox(width: 8),
               const Text('同期中...', style: TextStyle(fontSize: 12)),
             ]
-          : null,
+          : _syncError != null
+              ? [
+                  Icon(Icons.sync_problem,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '同期エラー: $_syncError',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Theme.of(context).colorScheme.error),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ]
+              : null,
     );
   }
 

@@ -18,6 +18,7 @@ const _scopes = [
 const _prefClientId     = 'google_web_client_id';
 const _prefClientSecret = 'google_web_client_secret';
 const _prefAccessToken  = 'google_web_access_token';
+const _prefRefreshToken = 'google_web_refresh_token';
 const _prefExpiry       = 'google_web_token_expiry';
 const _prefEmail        = 'google_web_email';
 const _prefName         = 'google_web_name';
@@ -30,6 +31,7 @@ class GoogleAuthImpl extends GoogleAuthInterface {
   String? _clientId;
   String? _clientSecret;
   String? _accessToken;
+  String? _refreshToken;
   DateTime? _expiry;
   String? _userEmail;
   String? _userName;
@@ -43,8 +45,10 @@ class GoogleAuthImpl extends GoogleAuthInterface {
 
   @override
   bool get isLoggedIn =>
-      _accessToken != null &&
-      (_expiry == null || _expiry!.isAfter(DateTime.now()));
+      _accessToken != null || _refreshToken != null;
+
+  bool get _tokenExpired =>
+      _expiry != null && _expiry!.isBefore(DateTime.now());
 
   @override
   String? get userEmail => _userEmail;
@@ -66,7 +70,8 @@ class GoogleAuthImpl extends GoogleAuthInterface {
     }
 
     // 保存済みトークンを読み込む
-    _accessToken = prefs.getString(_prefAccessToken);
+    _accessToken  = prefs.getString(_prefAccessToken);
+    _refreshToken = prefs.getString(_prefRefreshToken);
     final expiryStr = prefs.getString(_prefExpiry);
     if (expiryStr != null) _expiry = DateTime.tryParse(expiryStr);
     _userEmail = prefs.getString(_prefEmail);
@@ -102,16 +107,19 @@ class GoogleAuthImpl extends GoogleAuthInterface {
         throw Exception('${body['error']}: ${body['error_description']}');
       }
 
-      _accessToken = body['access_token'] as String;
+      _accessToken  = body['access_token'] as String;
+      _refreshToken = body['refresh_token'] as String?;
       final expiresIn = (body['expires_in'] as int?) ?? 3600;
-      _expiry =
-          DateTime.now().toUtc().add(Duration(seconds: expiresIn));
+      _expiry = DateTime.now().toUtc().add(Duration(seconds: expiresIn));
 
       final idToken = body['id_token'] as String?;
       if (idToken != null) _parseIdToken(idToken);
 
       await prefs.setString(_prefAccessToken, _accessToken!);
       await prefs.setString(_prefExpiry, _expiry!.toIso8601String());
+      if (_refreshToken != null) {
+        await prefs.setString(_prefRefreshToken, _refreshToken!);
+      }
       if (_userEmail != null) await prefs.setString(_prefEmail, _userEmail!);
       if (_userName  != null) await prefs.setString(_prefName,  _userName!);
 
@@ -122,6 +130,37 @@ class GoogleAuthImpl extends GoogleAuthInterface {
       _callbackError = 'ログイン処理に失敗しました: $e';
     } finally {
       html.window.sessionStorage.remove(_sessionVerifier);
+    }
+  }
+
+  /// リフレッシュトークンで新しいアクセストークンを取得
+  Future<bool> _refreshAccessToken() async {
+    if (_refreshToken == null || _clientId == null) return false;
+    try {
+      final resp = await http.post(
+        Uri.parse('https://oauth2.googleapis.com/token'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'refresh_token': _refreshToken!,
+          'client_id': _clientId!,
+          if (_clientSecret != null && _clientSecret!.isNotEmpty)
+            'client_secret': _clientSecret!,
+          'grant_type': 'refresh_token',
+        },
+      );
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      if (body['error'] != null) return false;
+
+      _accessToken = body['access_token'] as String;
+      final expiresIn = (body['expires_in'] as int?) ?? 3600;
+      _expiry = DateTime.now().toUtc().add(Duration(seconds: expiresIn));
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefAccessToken, _accessToken!);
+      await prefs.setString(_prefExpiry, _expiry!.toIso8601String());
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -152,7 +191,6 @@ class GoogleAuthImpl extends GoogleAuthInterface {
   Future<void> signIn() async {
     if (!hasClientId) throw Exception('Client IDが未設定です');
 
-    // PKCE code_verifier を生成
     final verifier  = _generateVerifier();
     final challenge = _codeChallenge(verifier);
     html.window.sessionStorage[_sessionVerifier] = verifier;
@@ -168,18 +206,19 @@ class GoogleAuthImpl extends GoogleAuthInterface {
       'prompt':                'consent',
     });
 
-    // ページ全体をGoogleログインにリダイレクト（ポップアップ不要）
     html.window.location.assign(authUri.toString());
   }
 
   @override
   Future<void> signOut() async {
-    _accessToken = null;
-    _expiry      = null;
-    _userEmail   = null;
-    _userName    = null;
+    _accessToken  = null;
+    _refreshToken = null;
+    _expiry       = null;
+    _userEmail    = null;
+    _userName     = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefAccessToken);
+    await prefs.remove(_prefRefreshToken);
     await prefs.remove(_prefExpiry);
     await prefs.remove(_prefEmail);
     await prefs.remove(_prefName);
@@ -187,9 +226,13 @@ class GoogleAuthImpl extends GoogleAuthInterface {
 
   @override
   Future<T> withClient<T>(Future<T> Function(http.Client client) fn) async {
-    if (_accessToken == null) throw Exception('未認証');
-    if (_expiry != null && _expiry!.isBefore(DateTime.now())) {
-      throw Exception('セッションの有効期限が切れました。再ログインしてください。');
+    if (_accessToken == null && _refreshToken == null) {
+      throw Exception('未認証');
+    }
+    // トークンが期限切れならリフレッシュを試みる
+    if (_tokenExpired || _accessToken == null) {
+      final ok = await _refreshAccessToken();
+      if (!ok) throw Exception('セッションの有効期限が切れました。Googleタブから再ログインしてください。');
     }
     final client = _BearerClient(_accessToken!);
     try {
@@ -199,7 +242,6 @@ class GoogleAuthImpl extends GoogleAuthInterface {
     }
   }
 
-  /// 現在のページURL（クエリなし）= redirect_uri に使う
   String get _currentBaseUrl {
     final loc = html.window.location;
     return '${loc.protocol}//${loc.host}${loc.pathname}';

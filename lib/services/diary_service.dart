@@ -7,6 +7,7 @@ import 'google_drive_service.dart';
 class DiaryService {
   static const _prefKey = 'diary_entries';
   final _drive = GoogleDriveService.instance;
+  String? lastSyncError;
 
   Future<List<DiaryEntry>> loadEntries() async {
     // デスクトップ: Documentsのファイルから読み込む
@@ -88,7 +89,8 @@ class DiaryService {
       await _drive.upload(jsonEncode(result.map((e) => e.toJson()).toList()));
 
       return result;
-    } catch (_) {
+    } catch (e) {
+      lastSyncError = e.toString();
       return null;
     }
   }
