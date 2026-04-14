@@ -57,10 +57,20 @@ class _ShiftImportScreenState extends State<ShiftImportScreen> {
       final picker = ImagePicker();
       XFile? file;
       try {
-        file = await picker.pickImage(source: source, imageQuality: 85);
+        file = await picker.pickImage(
+          source: source,
+          imageQuality: 80,
+          maxWidth: 1920,
+          maxHeight: 1920,
+        );
       } catch (_) {
         // camera 非対応の場合は gallery にフォールバック
-        file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+        file = await picker.pickImage(
+          source: ImageSource.gallery,
+          imageQuality: 80,
+          maxWidth: 1920,
+          maxHeight: 1920,
+        );
       }
       if (file == null) {
         setState(() => _loading = false);

@@ -80,25 +80,46 @@ class ShiftImportService {
           }
         ],
         'generationConfig': {
-          'temperature': 0,
-          'responseMimeType': 'application/json',
+          'temperature': 0.0,
         }
       }),
     );
 
     if (response.statusCode != 200) {
-      final err = jsonDecode(response.body);
-      throw Exception(err['error']?['message'] ?? 'APIエラー (${response.statusCode})');
+      String message;
+      try {
+        final err = jsonDecode(response.body) as Map<String, dynamic>;
+        message = err['error']?['message'] as String? ??
+            'APIエラー (${response.statusCode})';
+      } catch (_) {
+        message = 'APIエラー (${response.statusCode})';
+      }
+      throw Exception(message);
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final text = body['candidates']?[0]?['content']?['parts']?[0]?['text']
-        as String?;
-    if (text == null) throw Exception('レスポンスが空です');
+    final candidates = body['candidates'] as List<dynamic>?;
+    if (candidates == null || candidates.isEmpty) {
+      throw Exception('AIからの応答がありませんでした（安全フィルターにより遮断された可能性があります）');
+    }
+    final content = candidates[0]['content'] as Map<String, dynamic>?;
+    final parts = content?['parts'] as List<dynamic>?;
+    final text = parts?.isNotEmpty == true
+        ? parts![0]['text'] as String?
+        : null;
+    if (text == null || text.isEmpty) {
+      throw Exception('AIの応答テキストが空でした');
+    }
 
     // JSON部分だけ抽出
     final jsonStr = _extractJson(text);
-    final list = jsonDecode(jsonStr) as List<dynamic>;
+    final List<dynamic> list;
+    try {
+      list = jsonDecode(jsonStr) as List<dynamic>;
+    } on FormatException {
+      // JSONとして解析できない場合はシフトなしとして扱う
+      return [];
+    }
 
     return list.map((e) {
       final map = e as Map<String, dynamic>;
