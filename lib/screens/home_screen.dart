@@ -13,8 +13,9 @@ import 'search_view.dart';
 import 'stats_view.dart';
 import 'google_calendar_view.dart';
 import 'shift_import_screen.dart';
+import 'thermal_print_screen.dart';
 
-enum _NavItem { today, timeline, calendar, search, stats, google, shift }
+enum _NavItem { today, timeline, calendar, search, stats, google, shift, print }
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -206,6 +207,10 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.document_scanner_outlined),
               selectedIcon: Icon(Icons.document_scanner),
               label: 'シフト'),
+          NavigationDestination(
+              icon: Icon(Icons.print_outlined),
+              selectedIcon: Icon(Icons.print),
+              label: '印刷'),
         ],
       ),
       floatingActionButton: (_nav == _NavItem.today ||
@@ -282,6 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onRestoreEntries: _restore,
         ),
       _NavItem.shift => ShiftImportScreen(onAddEntry: _upsert),
+      _NavItem.print => const ThermalPrintScreen(),
     };
   }
 
@@ -332,6 +338,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icon(Icons.document_scanner_outlined),
                   selectedIcon: Icon(Icons.document_scanner),
                   label: Text('シフト')),
+              NavigationRailDestination(
+                  icon: Icon(Icons.print_outlined),
+                  selectedIcon: Icon(Icons.print),
+                  label: Text('印刷')),
             ],
             trailing: Expanded(
               child: Align(
@@ -422,6 +432,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onRestoreEntries: _restore,
                 ),
               _NavItem.shift => ShiftImportScreen(onAddEntry: _upsert),
+              _NavItem.print => const ThermalPrintScreen(),
             },
           ),
         ],
